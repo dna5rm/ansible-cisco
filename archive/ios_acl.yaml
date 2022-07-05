@@ -1,0 +1,97 @@
+## Cisco IOS extended access-list management 
+## Requires: python:netaddr, handler:"save_config_ios"
+#
+## VARIABLE EXAMPLE ##
+#
+#  - access_list:
+#      acltest:
+#      - action: permit
+#        protocol: tcp
+#        source: 10.10.10.10/10
+#        destination: any
+#        dport: 21 23
+#
+## USAGE EXAMPLE ##
+# 
+#  - name: "Device is running IOS"
+#    include: ios_acl.yaml acl="{{ item }}"
+#    with_items: "{{ access_list }}"
+#    when: (ansible_net_os == "ios")
+#
+---
+- block:
+
+  - name: "resequence {{ acl }} acl"
+    local_action:
+      module: ios_config
+      provider: "{{ ios_provider }}"
+      lines: "ip access-list resequence {{ acl }} 10 10"
+    when: (resequence is defined)
+
+  - name: "gather {{ acl }} acl"
+    local_action:
+      module: ios_command
+      provider: "{{ ios_provider }}"
+      commands:
+        - "show ip access-lists {{ acl }}"
+    register: ACL_OUTPUT
+
+  - name: "delete standard {{ acl }} acl"
+    local_action:
+      module: ios_config
+      provider: "{{ ios_provider }}"
+      lines: "no ip access-list standard {{ acl }}"
+    when: (ACL_OUTPUT.stdout_lines[0][0] != '') and
+          (ACL_OUTPUT.stdout_lines[0][0].split()[0:1][0] == 'Standard')
+    register: ACL_DELETE
+    notify:
+    - "save_config_ios"
+
+  - name: "delete extended {{ acl }} acl"
+    local_action:
+      module: ios_config
+      provider: "{{ ios_provider }}"
+      lines: "no ip access-list extended {{ acl }}"
+    when: (access_list[acl][0] is undefined) and
+          (ACL_OUTPUT.stdout_lines[0][0] != '') and
+          (ACL_OUTPUT.stdout_lines[0][0].split()[0:1][0] == 'Extended')
+    register: ACL_DELETE
+    notify:
+    - "save_config_ios"
+
+#  - fail: msg="{{ ACL_OUTPUT.stdout_lines[0][0].split()[0:1][0] }}"
+
+  - name: "remove {{ acl }} lines"
+    local_action:
+      module: ios_config
+      provider: "{{ ios_provider }}"
+      lines: "no {{ lineitem }}"
+      parents: "ip access-list extended {{ acl }}"
+    with_items: "{{ ACL_OUTPUT.stdout_lines[0]|regex_replace('([ \t]{2}|, wildcard bits| [(]\\d+ \\w+[)])') }}"
+    when: (access_list[acl] is defined) and
+          (not ACL_DELETE.changed) and
+          (ACL_OUTPUT.stdout_lines[0][0] != '') and
+          (ACL_OUTPUT.stdout_lines[0][0].split()[0:1][0] == 'Extended') and
+          (lineitem not in lookup('template', 'ios_acl.j2')) and
+          (lineitem is search('[0-9] permit|deny '))
+    loop_control:
+      loop_var: lineitem
+    notify:
+    - "save_config_ios"
+
+  - name: "add {{ acl }} lines"
+    local_action:
+      module: ios_config
+      provider: "{{ ios_provider }}"
+      lines: "{{ lineitem }}"
+      parents: "ip access-list extended {{ acl }}"
+    with_items: "{{ lookup('template', 'ios_acl.j2').split('\n') }}"
+    when: (access_list[acl] is defined) and
+          (lineitem is search('[0-9] permit|deny ')) and
+          (lineitem not in ACL_OUTPUT.stdout_lines[0]|regex_replace('([ \t]{2}|, wildcard bits| [(]\\d+ \\w+[)])'))
+    loop_control:
+      loop_var: lineitem
+    notify:
+    - "save_config_ios"
+
+  when: acl is defined

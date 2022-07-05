@@ -1,0 +1,22 @@
+## Manage usernames on an IOS device.
+---
+- name: 'ios_user: ansible user'
+  local_action:
+    module: ios_user
+    provider: '{{ ios_provider }}'
+    name: ansible
+    configured_password: KPhUJmZLlG4AYAHviGJm
+    update_password: '{{ update_password | default("on_create") }}'
+    privilege: 15
+    view: root
+    state: present
+  notify:
+  - "save_config_ios"
+
+#- name: 'ios_user: delete common accounts'
+#  local_action:
+#    module: ios_user
+#    provider: '{{ ios_provider }}'
+#    aggregate:
+#    - name: cisco
+#    state: absent

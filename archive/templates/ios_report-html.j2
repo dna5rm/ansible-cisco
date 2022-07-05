@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html>
+<head><title>ios_report: configuration backups</title><style>
+* {
+  -moz-box-sizing: border-box;
+  -webkit-box-sizing: border-box;
+	box-sizing: border-box;
+}
+
+body {
+  background:#353a40;
+}
+
+table {
+  border-collapse: separate;
+  background:#fff;
+  @include border-radius(5px);
+  margin:50px auto;
+  @include box-shadow(0px 0px 5px rgba(0,0,0,0.3));
+}
+
+thead {
+  @include border-radius(5px);
+}
+
+thead th {
+  font-family: 'Patua One', monospace;
+  font-size:16px;
+  font-weight:400;
+  color:#fff;
+  @include text-shadow(1px 1px 0px rgba(0,0,0,0.5));
+  text-align:left;
+  padding:20px;
+  border-top:1px solid #858d99;
+  background: #353a40;
+
+  &:first-child {
+   @include border-top-left-radius(5px);
+  }
+
+  &:last-child {
+    @include border-top-right-radius(5px);
+  }
+}
+
+tbody tr td {
+  font-family: 'Open Sans', sans-serif;
+  font-weight:400;
+  color:#5f6062;
+  font-size:13px;
+  padding:20px 20px 20px 20px;
+  border-bottom:1px solid #e0e0e0;
+
+}
+
+tbody tr:nth-child(2n) {
+  background:#f0f3f5;
+}
+
+tbody tr:last-child td {
+  border-bottom:none;
+  &:first-child {
+    @include border-bottom-left-radius(5px);
+  }
+  &:last-child {
+    @include border-bottom-right-radius(5px);
+  }
+}
+
+span.highlight {
+    background-color: yellow;
+}
+</style></head>
+<body>
+<table>
+    <thead>
+        <tr>
+            <th>Hostname</th>
+            <th>Model Type</th>
+            <th>Serial Number</th>
+            <th>IPv4 Addresses</th>
+            <th>Code Version</th>
+        </tr>
+    </thead>
+    <tbody>
+{% for host in ansible_play_hosts %}
+        <tr>
+            <td><a href="{{ hostvars[host]['group_names'][0] }}/{{ hostvars[host]['ansible_net_hostname'] }}.txt" target="_blank">{{ hostvars[host]['ansible_net_hostname'] }}</a></td>
+            <td>{{ hostvars[host]['ansible_net_model']|default(hostvars[host]['ansible_net_stacked_models'][0]) }}</td>
+            <td>{{ hostvars[host]['ansible_net_serialnum'] }}</td>
+            <td>{% for addr in hostvars[host]['ansible_facts']['net_all_ipv4_addresses'] %}{{ addr }}</br>{% endfor %}</td>
+            <td>{{ hostvars[host]['ansible_net_version'] }}</td>
+        </tr>
+{% endfor %}
+    </tbody>
+</table>
+
+</body>
+</html>

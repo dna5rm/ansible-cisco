@@ -1,0 +1,148 @@
+## Cisco IOS flow config
+## This tasklist will require the following...
+#  handler: save_config_ios
+#  variable: ansible_net_config, ansible_net_model
+#
+## USAGE EXAMPLE ##
+#
+#  - include: ios_flow.yaml
+#
+## 2019 (v.01) - initial build
+---
+- name: "ios_flow.yaml -> set_fact: exporter dns lookup"
+  set_fact:
+    exporter: "{{ exporter|default([]) }} +
+      [ [ 'Citco-{{ lookup('dig', item + '/PTR').split('.')[0] }}',
+          '{{ item }}' ] ]"
+    new_export: "{{ new_export|default([]) }} +
+      [ 'Citco-{{ lookup('dig', item + '/PTR').split('.')[0] }}' ]"
+  with_items: "{{ flow.exporter }}"
+  when: "( lookup('dig', item + '/PTR').split('.')[0] ) != 'NXDOMAIN'"
+
+# Old Netflow Config Syntax...
+- block:
+
+    - name: "ios_flow.yaml -> ip flow-export destination > del"
+      local_action:
+        module: ios_config
+        provider: "{{ ios_provider }}"
+        lines:
+          - no {{ item }}
+      loop: "{{ lookup('vars', 'ansible_net_config').split('\n')|
+                select('match', '^ip flow-export destination')|list }}"
+      when: (item.split()[3] not in flow.exporter)
+      notify:
+        - "save_config_ios"
+
+    - name: "ios_flow.yaml -> ip flow-export destination < add"
+      local_action:
+        module: ios_config
+        provider: "{{ ios_provider }}"
+        lines:
+          - ip flow-export destination {{ item[1] }} 2055
+      loop: "{{ exporter|sort }}"
+      notify:
+        - "save_config_ios"
+
+  when: (exporter is defined) and
+        (lookup('vars', 'ansible_net_config').split('\n')|
+          select('match', '^ip flow-export destination')|list|length >= 1)
+
+# New Netflow config Syntax...
+- block:
+
+    - name: "ios_flow.yaml -> flow record"
+      local_action:
+        module: ios_config
+        provider: "{{ ios_provider }}"
+        lines:
+          - description Citco Netflow Traffic Record
+          - match routing source as
+          - match routing destination as peer
+          - match routing forwarding-status
+          - match routing next-hop address ipv4
+          - match ipv4 tos
+          - match ipv4 precedence
+          - match ipv4 dscp
+          - match ipv4 protocol
+          - match ipv4 source address
+          - match ipv4 destination address
+          - match transport source-port
+          - match transport destination-port
+          - match interface input
+          - collect interface output
+          - collect counter bytes
+          - collect counter packets
+          - collect timestamp sys-uptime first
+          - collect timestamp sys-uptime last
+        parents: "flow record Citco"
+      notify:
+        - "save_config_ios"
+
+    - name: "ios_flow.yaml -> flow exporter"
+      local_action:
+        module: ios_config
+        provider: "{{ ios_provider }}"
+        lines:
+          - description Citco Netflow Traffic Exporter
+          - destination {{ item[-1] }}
+          - source {{ source.default|default('Loopback1') }}
+          - transport udp 2055
+        parents: "flow exporter {{ item[0] }}"
+      loop: "{{ exporter|sort }}"
+      notify:
+        - "save_config_ios"
+
+    - name: "ios_flow.yaml -> flow monitor"
+      local_action:
+        module: ios_config
+        provider: "{{ ios_provider }}"
+        lines:
+          - description Citco Netflow Traffic Monitor
+          - cache timeout active 60
+          - cache timeout update 60
+          - record Citco
+        parents: "flow monitor Citco"
+      notify:
+        - "save_config_ios"
+
+    - name: "ios_flow.yaml -> flow monitor < add exporters"
+      local_action:
+        module: ios_config
+        provider: "{{ ios_provider }}"
+        lines:
+          - exporter {{ item[0] }}
+        parents: "flow monitor Citco"
+      loop: "{{ exporter|sort }}"
+      notify:
+        - "save_config_ios"
+
+    - name: "ios_flow.yaml -> flow monitor > del exporters"
+      local_action:
+        module: ios_config
+        provider: "{{ ios_provider }}"
+        lines:
+          - no exporter {{ item.split()[-1] }}
+        parents: "flow monitor Citco"
+      loop: "{{ lookup('vars', 'ansible_net_config').split('\n')|
+                select('match', '^ exporter ')|list }}"
+      when: (item.split()[-1] not in new_export)
+      notify:
+        - "save_config_ios"
+
+    - name: "ios_flow.yaml -> delete flow exporters artifacts"
+      local_action:
+        module: ios_config
+        provider: "{{ ios_provider }}"
+        lines:
+          - no {{ item }}
+        parents: "flow monitor Citco"
+      loop: "{{ lookup('vars', 'ansible_net_config').split('\n')|
+                select('match', '^flow exporter ')|list }}"
+      when: (item.split()[-1] not in new_export)
+      notify:
+        - "save_config_ios"
+
+  when: (exporter is defined) and
+        (lookup('vars', 'ansible_net_config').split('\n')|
+          select('match', '^flow monitor')|list|length >= 1)

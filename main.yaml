@@ -18,30 +18,4 @@
 
   tasks:
 
-    - name: configure hostname and domain name
-      cisco.ios.ios_system:
-        hostname: "{{ inventory_hostname }}"
-        domain_name: "{{ global.domain_name | default('local') }}"
-        name_servers: "{{ global.name_servers | default('1.1.1.3') }}"
-        state: present
-      when: global is defined
-
-    - name: configure the login banner
-      cisco.ios.ios_banner:
-        banner: login
-        text: "{{ global.banner.login }}"
-        state: present
-      when:
-        - global is defined
-        - global.banner is defined
-        - global.banner.login is defined
-
-    - name: configure the motd banner
-      cisco.ios.ios_banner:
-        banner: motd
-        text: "{{ global.banner.motd }}"
-        state: present
-      when:
-        - global is defined
-        - global.banner is defined
-        - global.banner.motd is defined
+    - ansible.builtin.include_tasks: ios_system.yaml

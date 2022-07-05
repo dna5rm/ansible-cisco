@@ -1,0 +1,71 @@
+## Cisco IOS line config
+## Requires: handler:"save_config_ios"
+## 2019 (v.01) - initial build
+#
+## VARIABLES ##
+# vtyacl  = ACL to configure on line
+# vtyauth = Login Authentication
+#
+## USAGE EXAMPLE ##
+#  - include: ios_line.yaml vtyacl="vty-in"
+#
+---
+- name: "ios_line.yaml -> gather line config targets"
+  cisco.ios.ios_command:
+    commands:
+      - "show running-config | in ^line"
+  register: LINE_OUTPUT
+
+- name: "ios_line.yaml -> line con"
+  cisco.ios.ios_config:
+    lines:
+      - exec-timeout 15 0
+      - logging synchronous
+    parents: "{{ item }}"
+  with_items: "{{ LINE_OUTPUT.stdout_lines }}"
+  when: (item.split()[1] == "con")
+  notify:
+  - "save_config_ios"
+
+- name: "ios_line.yaml -> line aux"
+  cisco.ios.ios_config:
+    lines:
+      - exec-timeout 0 1
+      - no exec
+      - transport output all
+      - transport input all
+    parents: "{{ item }}"
+  with_items: "{{ LINE_OUTPUT.stdout_lines }}"
+  when: (item.split()[1] == "aux")
+  notify:
+  - "save_config_ios"
+
+- block:
+  - name: "ios_line.yaml -> line vty"
+    cisco.ios.ios_config:
+      lines:
+      - access-class {{ vtyacl }} in vrf-also
+      - exec-timeout 15 0
+      - logging synchronous
+      - transport input all
+      parents: "{{ item }}"
+    with_items:
+    - line vty 0 4
+    - line vty 5 15
+    notify:
+    - "save_config_ios"
+  rescue:
+  - name: "ios_line.yaml -> line vty"
+    cisco.ios.ios_config:
+      lines:
+      - access-class {{ vtyacl }}
+      - exec-timeout 15 0
+      - logging synchronous
+      - transport input all
+      parents: "{{ item }}"
+    with_items:
+    - line vty 0 4
+    - line vty 5 15
+    notify:
+    - "save_config_ios"
+  when: (vtyacl is defined) and (item.split()[1] == "vty")

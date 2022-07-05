@@ -1,0 +1,7 @@
+## ios_report: configuration backups
+
+| Hostname | Model Type | Serial Number | Code Version |
+| :--- | :---: | :---: | :--- |
+{% for host in ansible_play_hosts %}
+| [{{ hostvars[host]['ansible_net_hostname'] }}]({{ hostvars[host]['group_names'][0] }}/{{ hostvars[host]['ansible_net_hostname'] }}.txt) | {{ hostvars[host]['ansible_net_model']|default(hostvars[host]['ansible_net_stacked_models'][0]) }} | {{ hostvars[host]['ansible_net_serialnum'] }} | {{ hostvars[host]['ansible_net_version'] }} |
+{% endfor %}

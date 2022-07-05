@@ -1,0 +1,70 @@
+## Backup and generate a report of an IOS device.
+#
+## USAGE EXAMPLE ##
+#  - include: ios_report.yaml report_path='ios_report'
+#
+---
+#  - fail: msg='missing repo name {{ group_names[0] }}...'
+#    when: repo is not defined
+
+- name: 'gather ios config'
+  local_action:
+    module: ios_facts
+    provider: '{{ ios_provider }}'
+    gather_subset: all
+  when: (ansible_net_config is undefined)
+
+- block:
+
+  - name: 'check backup_location path'
+    local_action:
+      module: file
+      path: '{{ report_path }}/{{ group_names[0] }}'
+      mode: 0775
+      recurse: yes
+    changed_when: false
+    no_log: true
+
+  - name: 'save config to backup_location'
+    local_action:
+      module: copy
+      content: |
+        !!! Ansible Backup: running-config !!!
+        ! Host: {{ ansible_net_hostname|default('') }} ({{ inventory_hostname }})
+        ! Model: {{ ansible_net_model|default('') }}
+        ! Serial: {{ ansible_net_serialnum|default('') }}
+        ! Version: {{ ansible_net_version|default('') }}
+
+        {{ ansible_net_config }}
+      dest: '{{ report_path }}/{{ group_names[0] }}/{{ ansible_net_hostname }}.txt'
+      backup: yes
+      mode: 0664
+    changed_when: false
+
+  when: report_path is defined
+
+#- name: 'create README.md'
+#  local_action:
+#    module: template
+#    src: ios_report-readme.j2
+#    dest: '{{ report_path }}/README.md'
+#  run_once: true
+#  changed_when: false
+#  ignore_errors: true
+
+#- name: 'create index.html'
+#  local_action:
+#    module: template
+#    src: ios_report-html.j2
+#    dest: '{{ report_path }}/index.html'
+#  run_once: true
+#  changed_when: false
+#  ignore_errors: true
+
+#  - shell: |
+#      git add --all
+#      git commit -m 'Update'
+#      git push -u origin master
+#    args:
+#      chdir: '{{ report_path }}'
+#    run_once: true

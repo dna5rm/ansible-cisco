@@ -1,0 +1,63 @@
+## Cisco IOS standard access-list management
+## Requires: python:netaddr, handler:"save_config_ios"
+#
+## VARIABLE EXAMPLE ##
+#
+# standard_mgmt:
+#   snmp-mgmt:
+#   - { action: permit, source: 10.125.2.120 }
+#
+## USAGE EXAMPLE ##
+#
+#  - include: ios_acl-std.yaml
+#    with_items: "{{ standard_mgmt }}"
+#
+---
+- block:
+
+  - name: "ios_acl-std.yaml -> resequence {{ item }} acl"
+    cisco.ios.ios_config:
+      lines: "ip access-list resequence {{ item }} 10 10"
+    when: (resequence is defined)
+
+  - name: "ios_acl-std.yaml -> gather {{ item }} acl"
+    cisco.ios.ios_command:
+      commands: "show ip access-lists {{ item }}"
+    register: ACL_OUTPUT
+
+  - name: "ios_acl-std.yaml -> delete {{ item }} acl"
+    cisco.ios.ios_config:
+      lines: "no ip access-list {{ ACL_OUTPUT.stdout_lines[0][0].split()[0:1][0] }} {{ item }}"
+    when: ((standard_mgmt[item][0] is undefined) and (ACL_OUTPUT.stdout[0]|length != 0)) or
+          (ACL_OUTPUT.stdout_lines[0][0].split()[0:1][0] is defined) and
+          (ACL_OUTPUT.stdout_lines[0][0] is not search('^Standard'))
+    register: ACL_DELETE
+    notify:
+    - "save_config_ios"
+
+  - name: "ios_acl-std.yaml -> remove {{ item }} lines"
+    cisco.ios.ios_config:
+      lines: "no {{ line }}"
+      parents: "ip access-list standard {{ item }}"
+      match: none
+    with_items: "{{ ACL_OUTPUT.stdout_lines[0]|regex_replace('([ \t]{2}|, wildcard bits| [(]\\d+ \\w+[)])') }}"
+    when: (not ACL_DELETE.changed) and
+          (line not in lookup('template', 'ios_acl-std.j2').split('\n')|trim) and (line is search('[0-9] permit|deny '))
+    loop_control:
+      loop_var: line
+    notify:
+    - "save_config_ios"
+
+  - name: "ios_acl-std.yaml -> add {{ item }} lines"
+    cisco.ios.ios_config:
+      lines: "{{ line }}"
+      parents: "ip access-list standard {{ item }}"
+      match: none
+    with_items: "{{ lookup('template', 'ios_acl-std.j2').split('\n')|trim }}"
+    when: (line not in ACL_OUTPUT.stdout_lines[0]|regex_replace('([ \t]{2}|, wildcard bits| [(]\\d+ \\w+[)])'))
+    loop_control:
+      loop_var: line
+    notify:
+    - "save_config_ios"
+
+  when: item is defined

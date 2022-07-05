@@ -1,0 +1,9 @@
+{%- if standard_mgmt[item][0] is defined -%}
+{%- for line in standard_mgmt[item] -%}
+{{- loop.index * 10 }} {{ line.action | default('permit') -}}
+{##} {% if line.source | ipaddr('prefix') == 32 -%}
+ {{ line.source }}
+{% elif line.source != 'any' -%}
+ {{ line.source | ipaddr('network') }} {{ line.source | ipaddr('wildcard') }}
+{% else -%}any{% endif -%}{% if line.log is defined %} log{% endif %}
+{%- endfor -%}{%- endif -%}

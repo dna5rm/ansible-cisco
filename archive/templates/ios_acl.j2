@@ -1,0 +1,38 @@
+{#- ios_acl.j2
+
+Build what the show ip access-list output should look like..
+
+---
+access_list:
+  WCCP-LAB:
+  - action: permit
+    protocol: tcp
+    source: 192.0.2.10/24
+    destination: any
+    dport: 21 23
+
+# 2019 (v.01) - 
+-#}
+{%- if access_list[acl][0] is defined -%}
+{%- for line in access_list[acl] %}{{ loop.index * 10 -}} 
+{##} {{ line.action | default('permit') -}}
+{##} {{ line.protocol | default('ip') -}}
+{##} {% if line.source | ipaddr('prefix') == 32 -%}
+        host {{ line.source }}
+     {%- elif line.source != 'any' -%}
+        {{ line.source | ipaddr('network') }} {{ line.source | ipaddr('wildcard') }}
+     {%- else -%}any{%- endif -%}
+{% if (line.sport is defined) and (line.protocol is defined) and (line.protocol != 'ip') %}
+ {%- set PORT = line.sport|string -%}
+ {%- if PORT.split(' ').1 is defined %} range {% else %} eq {% endif %}{{ PORT }}{% endif %}
+{##} {% if line.destination | ipaddr('prefix') == 32 -%}
+        host {{ line.destination }}
+     {%- elif line.destination != 'any' -%}
+        {{ line.destination | ipaddr('network') }} {{ line.destination | ipaddr('wildcard') }}
+     {%- else -%}any{%- endif -%}
+{% if (line.dport is defined) and (line.protocol is defined) and (line.protocol != 'ip') %}
+ {%- set PORT = line.dport|string -%}
+ {%- if PORT.split(' ').1 is defined %} range {% else %} eq {% endif %}{{ PORT }}{% endif %}
+
+{% endfor -%}
+{%- endif -%}

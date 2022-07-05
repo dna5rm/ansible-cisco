@@ -1,0 +1,70 @@
+## Migration tasklist to insert new ACL line to a Cisco access-list
+## Requires: handler:"save_config_ios"
+#
+## USAGE EXAMPLE ##
+#
+#  - include: ios_acl+line.yaml
+#    with_items:
+#      - { acl: testacl, old: 209.87.104.253, new: 209.87.104.213 }
+#      - { acl: testacl, old: 128.127.96.1, new: 2.2.2.2 }
+#
+---
+
+- name: "gather {{ item.acl }}:{{ item.old }} lines"
+  local_action:
+    module: ios_command
+    provider: "{{ ios_provider }}"
+    commands:
+    - "show running-config | in ^ip.* {{ item.acl }}$"
+    - "show ip access-lists {{ item.acl }} | include {{ item.old }}($| )"
+  register: ACL
+
+- name: "generate pending {{ item.acl }}:{{ item.new }} acl lines"
+  shell: |
+    printf "{{ ACL.stdout[1] | regex_replace('[ \t]{2}') | regex_replace(', wildcard bits') | regex_replace(' [(].{9,30}[)]') }}" |\
+     sed "s/^\[u'//;s/'\]$//" | awk -v old='{{ item.old }}' -v new='{{ item.new }}' -v add='{{ item.add|default('0')|int }}' '{gsub(old, new)
+      split($0, word)
+      printf word[1]+add+1
+      for (i=2; i <= length($0); i++) {
+       printf " "word[i]
+      }
+      printf "\n"
+     }' | sed -r 's/( )+$//' | tee debug.log
+  changed_when: false
+  register: ACL_pending
+
+- name: "del {{ item.acl }}:{{ item.new }} acl lines"
+  local_action:
+    module: ios_config
+    provider: "{{ ios_provider }}"
+    lines: "no {{ line.split(' ')[0] }}"
+    parents: "{{ ACL.stdout[0] }}"
+  loop: "{{ ACL_pending.stdout_lines }}"
+  loop_control:
+    loop_var: line
+  when: (delete is defined) and (ACL_pending.stdout_lines[0] is defined)
+  notify:
+  - "save_config_ios"
+
+- name: "gather current {{ item.acl }}:{{ item.new }} acl lines"
+  local_action:
+    module: ios_command
+    provider: "{{ ios_provider }}"
+    commands:
+    - "show ip access-lists {{ item.acl }} | include {{ item.new | regex_replace(' ', '.*\ ') }}($| )"
+  when: (ACL_pending.stdout_lines[0] is defined)
+  register: ACL_current
+
+- name: "add {{ item.acl }}:{{ item.new }} acl lines"
+  local_action:
+    module: ios_config
+    provider: "{{ ios_provider }}"
+    lines: "{{ line }}"
+    parents: "{{ ACL.stdout[0] }}"
+  loop: "{{ ACL_pending.stdout_lines }}"
+  loop_control:
+    loop_var: line
+  when: (ACL_pending.stdout_lines[0] is defined) and
+        (line not in ACL_current.stdout | regex_replace('[ \t]{2}') | regex_replace(', wildcard bits') | regex_replace(' [(].{9,30}[)]'))
+  notify:
+  - "save_config_ios"

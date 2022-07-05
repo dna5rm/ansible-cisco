@@ -1,0 +1,245 @@
+## Cisco IOS snmp configuration.
+## Requires: handler:"save_config_ios"
+## 2019 (v.01) - initial build
+#
+## VARIABLES ##
+#  snmp:
+#    location: "{{ location|default(inventory_hostname.split('.')[0][0:4]) }}"
+#    contact: "{{ contact|default('root@local') }}"
+#    community:
+#    - { name: iosadmin, acl: 4, mode: ro }
+#    user:
+#   - { name: iosadmin, group: root, pass: password, acl: 22 }
+#    notification:
+#    - { host: 192.0.1.10, community: "public", version: 2c }
+#    traps_c2: ### c2901 c2911 c2921 c2951 ###
+#    - snmp-server enable traps envmon
+#
+## USAGE EXAMPLE ##
+#  - include: ios_snmp.yaml
+#    when: (ansible_net_os == "ios")
+#
+---
+# - debug:
+#     msg: "{{ lookup('vars', 'ansible_net_config').split('\n')|
+#                         select('match', '^snmp-server group')|list }}"
+# - debug:
+#     msg: "{{ snmp.user|map(attribute='group')|list|unique }}"
+
+- debug: msg="ios_snmp.yaml -> snmp variable is undefined!"
+  when: (snmp is undefined)
+
+- name: "ios_snmp.yaml -> ios_config: update snmp-server contact"
+  cisco.ios.ios_config:
+    lines: "snmp-server contact {{ snmp.contact }}"
+  when: (snmp.contact is defined)
+  notify:
+    - "save_config_ios"
+
+- name: "ios_snmp.yaml -> ios_config: delete snmp-server contact"
+  cisco.ios.ios_config:
+    lines: "no snmp-server contact"
+  when: (snmp.contact is not defined) and
+        (lookup('vars', 'ansible_net_config').split('\n')|
+           select('match', '^snmp-server contact')|list|length != 0)
+  notify:
+    - "save_config_ios"
+
+- name: "ios_snmp.yaml -> ios_config: update snmp-server location"
+  cisco.ios.ios_config:
+    lines: "snmp-server location {{ snmp.location }}"
+  when: (snmp.location is defined)
+  notify:
+    - "save_config_ios"
+
+- name: "ios_snmp.yaml -> ios_config: delete snmp-server location"
+  cisco.ios.ios_config:
+    lines: "no snmp-server location"
+  when: (snmp.location is not defined) and
+        (lookup('vars', 'ansible_net_config').split('\n')|
+           select('match', '^snmp-server location')|list|length != 0)
+  notify:
+    - "save_config_ios"
+
+- name: "ios_snmp.yaml -> set_fact: pending snmp-server community lines"
+  set_fact:
+    pending_community: "{{ pending_community|default([]) }} + [
+      'snmp-server community {{ item.name|default('') }}
+        {{ item.mode|default('RO')|upper }}
+        {%- if item.acl is defined %} {{ item.acl|default('') }}{%- endif -%}'
+      ]"
+  when: (snmp is defined)
+  with_items: "{{ snmp.community|default('') }}"
+
+- name: "ios_snmp.yaml -> ios_config: delete snmp-server community"
+  cisco.ios.ios_config:
+    lines: "no {{ line }}"
+  when: (line not in pending_community|default(''))
+  with_items: "{{ lookup('vars', 'ansible_net_config').split('\n')|
+                    select('match', '^snmp-server community')|list }}"
+  loop_control:
+    loop_var: line
+  notify:
+    - "save_config_ios"
+
+- name: "ios_snmp.yaml -> ios_config: update snmp-server community"
+  cisco.ios.ios_config:
+    lines: "{{ line }}"
+  when: (snmp.community is defined)
+  with_items: "{{ pending_community }}"
+  loop_control:
+    loop_var: line
+  notify:
+    - "save_config_ios"
+
+- name: "ios_snmp.yaml -> ios_config: delete snmp-server group"
+  cisco.ios.ios_config:
+    lines: "no {{ item }}"
+  when: (item.split(' ')[2] not in snmp.user|default('')|
+           map(attribute='group')|list|unique)
+  with_items: "{{ lookup('vars', 'ansible_net_config').split('\n')|
+                    select('match', '^snmp-server group')|list }}"
+  notify:
+    - "save_config_ios"
+
+- name: "ios_snmp.yaml -> ios_config: update snmp-server group"
+  cisco.ios.ios_config:
+    lines: "snmp-server group {{ item }} v3 priv"
+  when: (item not in lookup('vars', 'ansible_net_config').split('\n')|
+                       select('match', '^snmp-server group')|list)
+  with_items: "{{ snmp.user|default('')|map(attribute='group')|list|unique }}"
+  notify:
+    - "save_config_ios"
+
+- name: "ios_snmp.yaml -> set_fact: format pending snmp users"
+  set_fact:
+    pending_users: "{{ pending_users|default([]) }} + [
+       '{{ item.name|default('') }},
+        {{ item.group|default('') }},
+        {{ item.acl|default('') }}'
+      ]"
+  when: (snmp.user is defined)
+  with_items: "{{ snmp.user }}"
+
+- name: "ios_snmp.yaml -> ios_command: show snmp user"
+  cisco.ios.ios_command:
+    commands: "show snmp user"
+  register: snmp_user
+
+- name: "ios_snmp.yaml -> shell: format current snmp users"
+  local_action:
+    module: shell
+    _raw_params: |
+      printf "{{ snmp_user.stdout[0]|trim }}" | awk '
+      //{ ### IOS DEVICE ###
+       if($1 ~ /User/) { USER=$NF }
+       if($4 ~ /access/) { ACL=$NF }
+       if($1 ~ /Group/) { GROUP=$NF
+        print USER","GROUP","ACL
+       }
+      }'
+  changed_when: false
+  register: current_users
+
+- name: "ios_snmp.yaml -> ios_config: delete snmp-server user"
+  cisco.ios.ios_config:
+    lines: "no snmp-server user {{ item.split(',')[0] }}
+      {{ item.split(',')[1] }} v3"
+  when: (item not in pending_users|default(''))
+  with_items: "{{ current_users.stdout_lines }}"
+  notify:
+    - "save_config_ios"
+
+- name: "ios_snmp.yaml -> ios_config: update snmp-server user"
+  cisco.ios.ios_config:
+    lines: "snmp-server user {{ snmp.user[idx].name }}
+      {{ snmp.user[idx].group }} v3 auth sha {{ snmp.user[idx].pass }}
+      priv aes 128 {{ snmp.user[idx].pass }}
+      {%- if snmp.user[idx].acl is defined %} access
+      {{ snmp.user[idx].acl }}{%- endif -%}"
+  when: (pending_users is defined) and (item not in current_users.stdout_lines)
+  with_items:
+    - "{{ pending_users }}"
+  loop_control:
+    index_var: idx
+  notify:
+    - "save_config_ios"
+
+- name: "ios_snmp.yaml -> set_fact: pending snmp-server host"
+  set_fact:
+    pending_host: "{{ pending_host|default([]) }} + [
+      'snmp-server host {{ item.host|default('') }}
+       version {{ item.version|default('2c')|lower }}
+       {%- if item.community is defined %} {{ item.community }}
+       {% elif item.name is defined %} {{ item.name }}{%- endif -%}
+      ' ]"
+  when: (snmp is defined) and (item.host is defined) and
+        ((item.community is defined) or (item.name is defined))
+  with_items: "{{ snmp.notification|default('') }}"
+
+- name: "ios_snmp.yaml -> ios_config: delete snmp-server host"
+  cisco.ios.ios_config:
+    lines: "no {{ item }}"
+  when: (item not in pending_host|default(''))
+  with_items: "{{ lookup('vars', 'ansible_net_config').split('\n')|
+                    select('match', '^snmp-server host ')|list }}"
+  notify:
+    - "save_config_ios"
+
+- name: "ios_snmp.yaml -> ios_config: update snmp-server host"
+  cisco.ios.ios_config:
+    lines: "{{ item }}"
+  when: (pending_host is defined) and
+        (item not in lookup('vars', 'ansible_net_config').split('\n')|
+                       select('match', '^snmp-server host ')|list)
+  with_items: "{{ pending_host }}"
+  notify:
+    - "save_config_ios"
+
+- block:
+    - name: "ios_snmp.yaml -> ios_config: delete snmp-server traps"
+      cisco.ios.ios_config:
+        lines: "no {{ item }}"
+      when: (item|trim not in snmp['traps_' + platform])
+      with_items: "{{ lookup('vars', 'ansible_net_config').split('\n')|
+                    select('match', '^snmp-server enable traps ')|list }}"
+      ignore_errors: true
+      notify:
+        - "save_config_ios"
+    - name: "ios_snmp.yaml -> ios_config: update snmp-server traps"
+      cisco.ios.ios_config:
+        lines: "{{ item }}"
+      when: (item not in lookup('vars', 'ansible_net_config').split('\n')|
+                           select('match', '^snmp-server enable traps ')|list)
+      with_items: "{{ snmp['traps_' + platform] }}"
+      ignore_errors: true
+      notify:
+        - "save_config_ios"
+  rescue:
+    - debug:
+        msg: "Broken Variable: {{ snmp['traps_' + platform] }}"
+  when: (platform is defined) and (snmp is defined) and (snmp['traps_' + platform] is defined)
+
+- debug:
+    msg: "Missing Variable: snmp.traps_{{ platform }}"
+  when: (platform is defined) and (snmp is defined) and (snmp['traps_' + platform] is not defined)
+
+- name: "ios_snmp.yaml -> ios_config: update trap-source"
+  cisco.ios.ios_config:
+    lines: "snmp-server trap-source {{ source.trap|default(source.default) }}"
+  when: ((snmp is not defined) and
+         (source is defined) or
+         (source.default is defined))
+  notify:
+    - "save_config_ios"
+
+- name: "ios_snmp.yaml -> ios_config: delete trap-source"
+  cisco.ios.ios_config:
+    lines: "no snmp-server trap-source"
+  when: ((snmp is not defined) or 
+         (source is not defined) or
+         (source.default is not defined)) and
+        (lookup('vars', 'ansible_net_config').split('\n')|
+           select('match', '^snmp-server trap-source')|list|length != 0)
+  notify:
+    - "save_config_ios"
