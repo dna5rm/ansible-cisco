@@ -18,4 +18,14 @@
 
   tasks:
 
-    - ansible.builtin.include_tasks: ios_system.yaml
+#    - ansible.builtin.debug:
+#        msg: "{{ ansible_facts }}"
+#    - meta: end_play
+
+    - ansible.builtin.include_tasks: "{{ include }}"
+      loop_control:
+        loop_var: include
+      loop:
+        - ios_system.yaml
+        - ios_switch.yaml
+
